@@ -193,7 +193,7 @@ def main():
     # Reset button: Clear previous downloads and restart the app
     if st.button("Reset / Start New Process"):
         clear_papers_directory("papers")
-        for key in ["zip_buffer", "failed_buffer", "download_summary"]:
+        for key in ["zip_buffer", "failed_buffer", "download_summary", "total_dois", "success_count", "failed_count"]:
             if key in st.session_state:
                 del st.session_state[key]
         try:
@@ -228,6 +228,7 @@ def main():
                 content = uploaded_file.read().decode("utf-8")
                 doi_list = [doi.strip().strip('"') for doi in content.split(",") if doi.strip()]
                 st.write(f"Found {len(doi_list)} DOIs.")
+                st.session_state.total_dois = len(doi_list)
                 
                 successful, failed = batch_download(
                     doi_list=doi_list,
@@ -236,7 +237,10 @@ def main():
                     delay_range=delay_range
                 )
                 
-                # Store download buffers and summary in session state
+                st.session_state.success_count = len(successful)
+                st.session_state.failed_count = len(failed)
+                
+                # Store download buffers in session state
                 if successful:
                     st.session_state.zip_buffer = zip_papers()
                 else:
@@ -247,10 +251,14 @@ def main():
                 else:
                     st.session_state.failed_buffer = None
                 
-                summary = f"**Download Summary:**\n\n"
-                summary += f"Successful downloads: {len(successful)}\n\n"
-                if failed:
-                    summary += f"Failed DOIs: {', '.join(failed)}"
+                # Create a detailed summary report
+                summary = (
+                    f"**Total DOIs Processed:** {st.session_state.total_dois}\n\n"
+                    f"**Successful Downloads:** {st.session_state.success_count}\n\n"
+                    f"**Failed Downloads:** {st.session_state.failed_count}\n\n"
+                )
+                if st.session_state.failed_count > 0:
+                    summary += f"**Failed DOIs:** {', '.join(failed)}\n"
                 st.session_state.download_summary = summary
                 
             except Exception as e:
@@ -287,7 +295,7 @@ def main():
                 else:
                     st.info("No failed downloads.")
     
-        # Now display the stored summary report
+        # Display the detailed summary report
         if "download_summary" in st.session_state:
             st.write("---")
             st.subheader("Download Summary")
