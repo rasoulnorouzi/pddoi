@@ -30,7 +30,8 @@ def try_download_with_mirrors(doi, mirrors, output_dir="papers", delay_range=(3,
             delay = random.uniform(delay_range[0], delay_range[1])
             st.write(f"Waiting {delay:.2f} seconds before next mirror...")
             time.sleep(delay)
-    return False
+    st.write("All Sci-Hub mirrors failed. Checking open access sources...")
+    return download_open_access(doi, output_dir=output_dir)
 
 def download_paper(doi, output_dir="papers", sci_hub_url="https://sci-hub.ru/"):
     """
@@ -127,6 +128,50 @@ def download_paper(doi, output_dir="papers", sci_hub_url="https://sci-hub.ru/"):
     
     except Exception as e:
         st.write(f"Error downloading paper with DOI {doi}: {str(e)}")
+        return False
+
+def download_open_access(doi, output_dir="papers", email="example@example.com"):
+    """
+    Attempt to download an open access version of the paper using the Unpaywall API.
+    """
+    api_url = f"https://api.unpaywall.org/v2/{doi}?email={email}"
+    try:
+        res = requests.get(api_url, timeout=30)
+        if res.status_code != 200:
+            st.write(f"Unpaywall request failed for DOI: {doi}. Status code: {res.status_code}")
+            return False
+        data = res.json()
+        pdf_url = None
+        if data.get("best_oa_location") and data["best_oa_location"].get("url_for_pdf"):
+            pdf_url = data["best_oa_location"]["url_for_pdf"]
+        elif data.get("oa_locations"):
+            for loc in data["oa_locations"]:
+                if loc.get("url_for_pdf"):
+                    pdf_url = loc["url_for_pdf"]
+                    break
+        if not pdf_url:
+            st.write(f"No open access PDF found for DOI: {doi}")
+            return False
+
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                          'AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/91.0.4472.124 Safari/537.36'
+        }
+        pdf_response = requests.get(pdf_url, headers=headers, timeout=30)
+        if pdf_response.status_code != 200:
+            st.write(f"Failed to download OA PDF for DOI: {doi}. Status code: {pdf_response.status_code}")
+            return False
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        safe_doi = doi.replace('/', '_').replace('\\', '_')
+        filename = os.path.join(output_dir, f"{safe_doi}.pdf")
+        with open(filename, 'wb') as f:
+            f.write(pdf_response.content)
+        st.write(f"**Successfully downloaded OA PDF:** `{filename}`")
+        return True
+    except Exception as e:
+        st.write(f"Error downloading OA paper with DOI {doi}: {str(e)}")
         return False
 
 def batch_download(doi_list, mirrors, output_dir="papers", delay_range=(3, 7)):
