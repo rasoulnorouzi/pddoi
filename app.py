@@ -9,6 +9,27 @@ import zipfile
 import io
 import shutil
 
+# Several Sci-Hub domains occasionally return HTTP 403.  Using a variety
+# of user agents and falling back to the r.jina.ai proxy helps bypass this.
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/115.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/15.4 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/112.0 Safari/537.36",
+]
+
+
+def fetch_with_bypass(url, headers):
+    """Fetch a URL and retry via r.jina.ai if a 403 Forbidden is returned."""
+    response = requests.get(url, headers=headers, timeout=30)
+    if response.status_code == 403:
+        # r.jina.ai fetches the resource server-side and returns the content
+        proxy_url = f"https://r.jina.ai/{url}"
+        response = requests.get(proxy_url, headers=headers, timeout=30)
+    return response
+
 def clear_papers_directory(output_dir="papers"):
     """Remove the papers directory if it exists."""
     if os.path.exists(output_dir):
@@ -33,7 +54,7 @@ def try_download_with_mirrors(doi, mirrors, output_dir="papers", delay_range=(3,
     st.write("All Sci-Hub mirrors failed. Checking open access sources...")
     return download_open_access(doi, output_dir=output_dir)
 
-def download_paper(doi, output_dir="papers", sci_hub_url="https://sci-hub.ru/"):
+def download_paper(doi, output_dir="papers", sci_hub_url="https://sci-hub.box/"):
     """
     Download a paper from Sci-Hub using its DOI.
     """
@@ -48,9 +69,9 @@ def download_paper(doi, output_dir="papers", sci_hub_url="https://sci-hub.ru/"):
     
     try:
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': random.choice(USER_AGENTS)
         }
-        response = requests.get(url, headers=headers, timeout=30)
+        response = fetch_with_bypass(url, headers)
         
         if response.status_code != 200:
             st.write(f"Failed to access Sci-Hub for DOI: {doi}. Status code: {response.status_code}")
@@ -98,7 +119,7 @@ def download_paper(doi, output_dir="papers", sci_hub_url="https://sci-hub.ru/"):
             pdf_url = base_url + pdf_url if pdf_url.startswith('/') else base_url + '/' + pdf_url
         
         st.write(f"Downloading PDF from: {pdf_url}")
-        pdf_response = requests.get(pdf_url, headers=headers, timeout=30)
+        pdf_response = fetch_with_bypass(pdf_url, headers)
         
         if pdf_response.status_code != 200:
             st.write(f"Failed to download PDF for DOI: {doi}. Status code: {pdf_response.status_code}")
@@ -154,11 +175,9 @@ def download_open_access(doi, output_dir="papers", email="example@example.com"):
             return False
 
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                          'AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': random.choice(USER_AGENTS)
         }
-        pdf_response = requests.get(pdf_url, headers=headers, timeout=30)
+        pdf_response = fetch_with_bypass(pdf_url, headers)
         if pdf_response.status_code != 200:
             st.write(f"Failed to download OA PDF for DOI: {doi}. Status code: {pdf_response.status_code}")
             return False
@@ -250,10 +269,8 @@ def main():
     
     # Default Sci-Hub mirrors
     default_mirrors = [
-        "https://sci-hub.ru/",
-        "https://sci-hub.st/",
+        "https://sci-hub.box/",
         "https://sci-hub.se/",
-        "https://sci.hub.ren/",
         "https://sci-hub.wf/"
     ]
     
@@ -261,9 +278,14 @@ def main():
     selected_defaults = st.multiselect("Choose default Sci-Hub mirrors", default_mirrors, default=default_mirrors)
     custom_mirrors = st.text_area("Or add custom Sci-Hub mirrors (one per line)", value="")
     custom_mirrors_list = [mirror.strip() for mirror in custom_mirrors.splitlines() if mirror.strip()]
-    all_mirrors = selected_defaults + custom_mirrors_list
+
+    # Combine and deduplicate mirrors, then enforce a maximum of three
+    all_mirrors = list(dict.fromkeys(selected_defaults + custom_mirrors_list))
     if not all_mirrors:
         all_mirrors = default_mirrors
+    if len(all_mirrors) > 3:
+        st.warning("Only the first three mirrors will be used.")
+        all_mirrors = all_mirrors[:3]
     
     delay_range = st.slider("Select delay range between requests (in seconds)", 1, 10, (3, 7))
     
