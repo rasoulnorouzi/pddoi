@@ -5,3 +5,7 @@ several Sci-Hub mirrors and, if none succeed, falls back to the Unpaywall API to
 fetch any available open access versions. Upload a text file containing DOIs
 separated by commas and the app will attempt to download them and bundle the
 results into a ZIP file.
+
+
+Runr the following colab link:
+https://colab.research.google.com/drive/1xxKl_oIMaclLqyIsudqeGS3kC2IrWC5R?usp=sharing
